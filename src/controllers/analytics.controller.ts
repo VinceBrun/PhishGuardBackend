@@ -1,8 +1,8 @@
 import { Response } from 'express';
-import { AuthRequest } from '../middleware/auth.middleware';
-import { analyticsService } from '../services/analytics.service';
-import { sendSuccess } from '../utils/response';
-import { asyncHandler } from '../middleware/error.middleware';
+import { AuthRequest } from '@/middleware/auth.middleware';
+import { analyticsService } from '@/services/analytics.service';
+import { sendSuccess } from '@/utils/response';
+import { asyncHandler } from '@/middleware/error.middleware';
 
 export const analyticsController = {
   getOverview: asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -24,5 +24,10 @@ export const analyticsController = {
     const days = req.query.days ? parseInt(req.query.days as string) : 30;
     const trend = await analyticsService.getClickRateTrend(req.user?.organizationId, days);
     sendSuccess(res, trend);
+  }),
+
+  getTemplatePerformance: asyncHandler(async (req: AuthRequest, res: Response) => {
+    const data = await analyticsService.getTemplatePerformance(req.user?.organizationId);
+    sendSuccess(res, data);
   }),
 };

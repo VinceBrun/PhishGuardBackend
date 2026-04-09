@@ -5,6 +5,7 @@ import campaignRoutes from './campaign.routes';
 import templateRoutes from './template.routes';
 import quizRoutes from './quiz.routes';
 import analyticsRoutes from './analytics.routes';
+import aiRoutes from './ai.routes';
 
 const router = Router();
 
@@ -14,5 +15,6 @@ router.use('/campaigns', campaignRoutes);
 router.use('/templates', templateRoutes);
 router.use('/quizzes', quizRoutes);
 router.use('/analytics', analyticsRoutes);
+router.use('/ai', aiRoutes);
 
 export default router;

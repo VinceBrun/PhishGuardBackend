@@ -190,4 +190,43 @@ export const analyticsService = {
 
     return trend;
   },
+
+  async getTemplatePerformance(organizationId?: string) {
+    const campaigns = await prisma.campaign.findMany({
+      where: organizationId ? { organizationId } : {},
+      include: {
+        template: {
+          select: {
+            name: true,
+          },
+        },
+        participants: {
+          select: {
+            isLinkClicked: true,
+          },
+        },
+      },
+    });
+
+    const templateMap = new Map<string, { name: string; clicks: number; total: number }>();
+
+    campaigns.forEach((campaign) => {
+      const templateId = campaign.templateId;
+      const templateName = campaign.template?.name || 'Unknown Template';
+
+      if (!templateMap.has(templateId)) {
+        templateMap.set(templateId, { name: templateName, clicks: 0, total: 0 });
+      }
+
+      const data = templateMap.get(templateId)!;
+      data.total += campaign.participants.length;
+      data.clicks += campaign.participants.filter((p) => p.isLinkClicked).length;
+    });
+
+    return Array.from(templateMap.values()).map((t) => ({
+      name: t.name,
+      clickRate: t.total > 0 ? Math.round((t.clicks / t.total) * 100 * 10) / 10 : 0,
+      totalSent: t.total,
+    }));
+  },
 };
