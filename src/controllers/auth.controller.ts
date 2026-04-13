@@ -33,4 +33,16 @@ export const authController = {
   me: asyncHandler(async (req: AuthRequest, res: Response) => {
     sendSuccess(res, req.user, 'User retrieved successfully');
   }),
+
+  changePassword: asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Current and new passwords are required' },
+      });
+    }
+    await authService.changePassword(req.user!.id, currentPassword, newPassword);
+    sendSuccess(res, null, 'Password changed successfully');
+  }),
 };
