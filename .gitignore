@@ -1,20 +1,25 @@
 # Node.js
 node_modules/
-dist/
-build/
+
+# dist is NOT ignored — Railway builds from source using npm run build
+# but keeping dist/ committed means deploys work even without a build step
+# dist/
+
+# Logs — never commit log files
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
+logs/
+!logs/.gitkeep
 
-# Environment
+# Environment — NEVER commit .env
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# IDEs/Editors
+# IDEs
 .vscode/
 .idea/
 *.swp
@@ -22,7 +27,7 @@ yarn-error.log*
 
 # OS
 .DS_Store
-Thumbs.db
+Thumbbs.db
 
 # Prisma
 /prisma/*.db
