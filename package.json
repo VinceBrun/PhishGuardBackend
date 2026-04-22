@@ -13,7 +13,7 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "db:migrate": "prisma migrate deploy",
     "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:seed-templates": "tsx prisma/seed-templates.ts",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate"
   },
