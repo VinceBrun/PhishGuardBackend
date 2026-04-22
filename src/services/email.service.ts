@@ -1,33 +1,20 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { config } from '@/config';
 import prisma from '@/utils/database';
 import logger from '@/utils/logger';
 
-// Create transporter lazily so config is fully loaded before use
-function createTransporter() {
-  return nodemailer.createTransport({
-    host: config.SMTP_HOST,
-    port: config.SMTP_PORT,
-    secure: config.SMTP_SECURE,
-    auth: {
-      user: config.SMTP_USER,
-      // Strip spaces from App Password — Gmail App Passwords sometimes include spaces
-      pass: config.SMTP_PASSWORD.replace(/\s/g, ''),
-    },
-    // Required for Gmail compatibility
-    tls: {
-      rejectUnauthorized: false,
-    },
-  });
-}
+// Resend client — uses RESEND_API_KEY from environment
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Sending address — on Resend free tier use onboarding@resend.dev
+// Once a domain is verified in Resend, change this to your real domain
+const FROM_ADDRESS = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
 function buildTrackingPixelUrl(campaignId: string, userId: string): string {
-  // Pixel must hit the BACKEND so the server can record the open event
   return `${config.BACKEND_URL}/api/${config.API_VERSION}/email/track/open?cid=${campaignId}&uid=${userId}`;
 }
 
 function buildTrackingLinkUrl(campaignId: string, userId: string): string {
-  // Click goes to BACKEND which records it, then redirects to FRONTEND training page
   return `${config.BACKEND_URL}/api/${config.API_VERSION}/email/track/click?cid=${campaignId}&uid=${userId}`;
 }
 
@@ -40,14 +27,12 @@ function renderEmailBody(
   const trackingLink = buildTrackingLinkUrl(campaignId, userId);
   const trackingPixel = buildTrackingPixelUrl(campaignId, userId);
 
-  // Replace all name placeholders
   const body = template.body
     .replace(/\{\{user_name\}\}/g, userName)
     .replace(/\{\{name\}\}/g, userName)
     .replace(/\[Name\]/g, userName)
     .replace(/Dear Customer/g, `Dear ${userName}`);
 
-  // Convert plain-text paragraphs to HTML
   const htmlBody = body
     .split(/\n\n+/)
     .map(p => p.trim())
@@ -87,8 +72,7 @@ function renderEmailBody(
     <tr>
       <td align="center">
         <table width="600" cellpadding="0" cellspacing="0"
-               style="max-width:600px;width:100%;background-color:#ffffff;
-                      border-radius:8px;overflow:hidden;">
+               style="max-width:600px;width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;">
 
           <tr>
             <td style="background-color:#1e3a5f;padding:20px 32px;">
@@ -129,8 +113,7 @@ function renderEmailBody(
         <table width="600" cellpadding="0" cellspacing="0"
                style="max-width:600px;width:100%;margin-top:16px;">
           <tr>
-            <td align="center"
-                style="color:#9ca3af;font-size:11px;padding:0 20px;">
+            <td align="center" style="color:#9ca3af;font-size:11px;padding:0 20px;">
               You are receiving this email because you are a registered user.
               To unsubscribe, contact your administrator.
             </td>
@@ -155,19 +138,12 @@ export const emailService = {
         participants: {
           include: {
             user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-              },
+              select: { id: true, name: true, email: true },
             },
           },
         },
         organization: {
-          select: {
-            fromEmail: true,
-            fromName: true,
-          },
+          select: { fromEmail: true, fromName: true },
         },
       },
     });
@@ -176,38 +152,37 @@ export const emailService = {
       throw new Error('Campaign not found');
     }
 
-    const fromEmail = campaign.organization?.fromEmail || config.FROM_EMAIL;
-    const fromName = campaign.template.fromName || campaign.organization?.fromName || config.FROM_NAME;
+    const fromName = campaign.template.fromName ||
+      campaign.organization?.fromName ||
+      config.FROM_NAME;
 
-    // Log SMTP config for debugging (no password)
-    logger.info(`Sending campaign emails via SMTP: ${config.SMTP_HOST}:${config.SMTP_PORT} as ${config.SMTP_USER}`);
+    logger.info(`Sending campaign ${campaignId} emails via Resend from ${FROM_ADDRESS}`);
 
-    const transport = createTransporter();
     let sentCount = 0;
     let failedCount = 0;
 
     for (const participant of campaign.participants) {
       try {
-        const htmlBody = renderEmailBody(
+        const html = renderEmailBody(
           campaign.template,
           participant.user.name,
           campaignId,
           participant.user.id
         );
 
-        await transport.sendMail({
-          from: `"${fromName}" <${config.SMTP_USER}>`,
+        const { error } = await resend.emails.send({
+          from: `${fromName} <${FROM_ADDRESS}>`,
           to: participant.user.email,
           subject: campaign.template.subject,
-          html: htmlBody,
+          html,
         });
 
+        if (error) {
+          throw new Error(error.message);
+        }
+
         await prisma.emailEvent.create({
-          data: {
-            eventType: 'sent',
-            campaignId,
-            userId: participant.user.id,
-          },
+          data: { eventType: 'sent', campaignId, userId: participant.user.id },
         });
 
         sentCount++;
@@ -218,38 +193,24 @@ export const emailService = {
       }
     }
 
+    logger.info(`Campaign ${campaignId} complete: ${sentCount} sent, ${failedCount} failed`);
     return { sentCount, failedCount, total: campaign.participants.length };
   },
 
   async recordOpen(campaignId: string, userId: string, ipAddress?: string, userAgent?: string) {
     await prisma.emailEvent.create({
-      data: {
-        eventType: 'opened',
-        campaignId,
-        userId,
-        ipAddress,
-        userAgent,
-      },
+      data: { eventType: 'opened', campaignId, userId, ipAddress, userAgent },
     });
 
     await prisma.campaignParticipant.updateMany({
       where: { campaignId, userId, isEmailOpened: false },
-      data: {
-        isEmailOpened: true,
-        emailOpenedAt: new Date(),
-      },
+      data: { isEmailOpened: true, emailOpenedAt: new Date() },
     });
   },
 
   async recordClick(campaignId: string, userId: string, ipAddress?: string, userAgent?: string) {
     await prisma.emailEvent.create({
-      data: {
-        eventType: 'clicked',
-        campaignId,
-        userId,
-        ipAddress,
-        userAgent,
-      },
+      data: { eventType: 'clicked', campaignId, userId, ipAddress, userAgent },
     });
 
     const participant = await prisma.campaignParticipant.findFirst({
@@ -263,23 +224,22 @@ export const emailService = {
 
       await prisma.campaignParticipant.updateMany({
         where: { campaignId, userId },
-        data: {
-          isLinkClicked: true,
-          linkClickedAt: new Date(),
-          timeToClick,
-        },
+        data: { isLinkClicked: true, linkClickedAt: new Date(), timeToClick },
       });
     }
   },
 
   async verifyConnection(): Promise<boolean> {
     try {
-      const transport = createTransporter();
-      await transport.verify();
-      logger.info('SMTP connection verified successfully');
+      // Resend doesn't need a connection test — just verify API key exists
+      if (!process.env.RESEND_API_KEY) {
+        logger.error('RESEND_API_KEY is not set');
+        return false;
+      }
+      logger.info('Resend API key is configured');
       return true;
     } catch (err) {
-      logger.error('SMTP connection failed:', err);
+      logger.error('Resend verification failed:', err);
       return false;
     }
   },
