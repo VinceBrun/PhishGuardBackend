@@ -3,15 +3,23 @@ import { config } from '@/config';
 import prisma from '@/utils/database';
 import logger from '@/utils/logger';
 
-const transporter = nodemailer.createTransport({
-  host: config.SMTP_HOST,
-  port: config.SMTP_PORT,
-  secure: config.SMTP_SECURE,
-  auth: {
-    user: config.SMTP_USER,
-    pass: config.SMTP_PASSWORD,
-  },
-});
+// Create transporter lazily so config is fully loaded before use
+function createTransporter() {
+  return nodemailer.createTransport({
+    host: config.SMTP_HOST,
+    port: config.SMTP_PORT,
+    secure: config.SMTP_SECURE,
+    auth: {
+      user: config.SMTP_USER,
+      // Strip spaces from App Password — Gmail App Passwords sometimes include spaces
+      pass: config.SMTP_PASSWORD.replace(/\s/g, ''),
+    },
+    // Required for Gmail compatibility
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+}
 
 function buildTrackingPixelUrl(campaignId: string, userId: string): string {
   // Pixel must hit the BACKEND so the server can record the open event
@@ -171,6 +179,10 @@ export const emailService = {
     const fromEmail = campaign.organization?.fromEmail || config.FROM_EMAIL;
     const fromName = campaign.template.fromName || campaign.organization?.fromName || config.FROM_NAME;
 
+    // Log SMTP config for debugging (no password)
+    logger.info(`Sending campaign emails via SMTP: ${config.SMTP_HOST}:${config.SMTP_PORT} as ${config.SMTP_USER}`);
+
+    const transport = createTransporter();
     let sentCount = 0;
     let failedCount = 0;
 
@@ -183,8 +195,8 @@ export const emailService = {
           participant.user.id
         );
 
-        await transporter.sendMail({
-          from: `"${fromName}" <${fromEmail}>`,
+        await transport.sendMail({
+          from: `"${fromName}" <${config.SMTP_USER}>`,
           to: participant.user.email,
           subject: campaign.template.subject,
           html: htmlBody,
@@ -262,9 +274,12 @@ export const emailService = {
 
   async verifyConnection(): Promise<boolean> {
     try {
-      await transporter.verify();
+      const transport = createTransporter();
+      await transport.verify();
+      logger.info('SMTP connection verified successfully');
       return true;
-    } catch {
+    } catch (err) {
+      logger.error('SMTP connection failed:', err);
       return false;
     }
   },
