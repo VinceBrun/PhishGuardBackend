@@ -20,10 +20,12 @@ function createTransporter() {
       user: config.SMTP_USER,
       pass: config.SMTP_PASSWORD.replace(/\s/g, ''),
     },
+    // Force IPv4 — Railway servers default to IPv6 which Gmail SMTP blocks
+    family: 4,
     tls: {
       rejectUnauthorized: false,
     },
-  });
+  } as nodemailer.TransportOptions);
 }
 
 function renderEmailBody(
