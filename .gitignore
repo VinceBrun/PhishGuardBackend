@@ -1,9 +1,9 @@
 # Node.js
 node_modules/
 
-# dist is NOT ignored — Railway builds from source using npm run build
-# but keeping dist/ committed means deploys work even without a build step
-# dist/
+# dist IS ignored — Railway always builds from source via npm run build
+# This ensures the latest compiled code is always used
+dist/
 
 # Logs — never commit log files
 *.log
