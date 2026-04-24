@@ -1,7 +1,10 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { config } from '@/config';
 import prisma from '@/utils/database';
 import logger from '@/utils/logger';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM_ADDRESS = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
 function buildTrackingPixelUrl(campaignId: string, userId: string): string {
   return `${config.BACKEND_URL}/api/${config.API_VERSION}/email/track/open?cid=${campaignId}&uid=${userId}`;
@@ -9,25 +12,6 @@ function buildTrackingPixelUrl(campaignId: string, userId: string): string {
 
 function buildTrackingLinkUrl(campaignId: string, userId: string): string {
   return `${config.BACKEND_URL}/api/${config.API_VERSION}/email/track/click?cid=${campaignId}&uid=${userId}`;
-}
-
-function createTransporter() {
-  return nodemailer.createTransport({
-    // Hardcoded IPv4 address for Gmail SMTP
-    // Railway DNS resolves smtp.gmail.com to IPv6 which is blocked
-    // 74.125.133.108 is a stable Gmail SMTP IPv4 address
-    host: '74.125.133.108',
-    port: 587,
-    secure: false,
-    auth: {
-      user: config.SMTP_USER,
-      pass: config.SMTP_PASSWORD.replace(/\s/g, ''),
-    },
-    tls: {
-      rejectUnauthorized: false,
-      servername: 'smtp.gmail.com',
-    },
-  } as nodemailer.TransportOptions);
 }
 
 function renderEmailBody(
@@ -154,18 +138,7 @@ export const emailService = {
       campaign.organization?.fromName ||
       config.FROM_NAME;
 
-    logger.info(`Sending campaign ${campaignId} via Gmail SMTP as ${config.SMTP_USER}`);
-
-    const transport = createTransporter();
-
-    // Verify SMTP connection before sending
-    try {
-      await transport.verify();
-      logger.info('SMTP connection verified successfully');
-    } catch (err) {
-      logger.error(`SMTP connection failed — cannot send emails: ${err}`);
-      throw err;
-    }
+    logger.info(`Sending campaign ${campaignId} emails via Resend from ${FROM_ADDRESS}`);
 
     let sentCount = 0;
     let failedCount = 0;
@@ -179,12 +152,14 @@ export const emailService = {
           participant.user.id
         );
 
-        await transport.sendMail({
-          from: `"${fromName}" <${config.SMTP_USER}>`,
+        const { error } = await resend.emails.send({
+          from: `${fromName} <${FROM_ADDRESS}>`,
           to: participant.user.email,
           subject: campaign.template.subject,
           html,
         });
+
+        if (error) throw new Error(error.message);
 
         await prisma.emailEvent.create({
           data: { eventType: 'sent', campaignId, userId: participant.user.id },
@@ -234,14 +209,11 @@ export const emailService = {
   },
 
   async verifyConnection(): Promise<boolean> {
-    try {
-      const transport = createTransporter();
-      await transport.verify();
-      logger.info('SMTP connection verified');
-      return true;
-    } catch (err) {
-      logger.error('SMTP verification failed:', err);
+    if (!process.env.RESEND_API_KEY) {
+      logger.error('RESEND_API_KEY is not set');
       return false;
     }
+    logger.info('Resend API key configured');
+    return true;
   },
 };
