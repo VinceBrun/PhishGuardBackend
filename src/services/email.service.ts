@@ -13,17 +13,19 @@ function buildTrackingLinkUrl(campaignId: string, userId: string): string {
 
 function createTransporter() {
   return nodemailer.createTransport({
-    host: config.SMTP_HOST,
-    port: config.SMTP_PORT,
-    secure: config.SMTP_SECURE,
+    // Hardcoded IPv4 address for Gmail SMTP
+    // Railway DNS resolves smtp.gmail.com to IPv6 which is blocked
+    // 74.125.133.108 is a stable Gmail SMTP IPv4 address
+    host: '74.125.133.108',
+    port: 587,
+    secure: false,
     auth: {
       user: config.SMTP_USER,
       pass: config.SMTP_PASSWORD.replace(/\s/g, ''),
     },
-    // Force IPv4 — Railway servers default to IPv6 which Gmail SMTP blocks
-    family: 4,
     tls: {
       rejectUnauthorized: false,
+      servername: 'smtp.gmail.com',
     },
   } as nodemailer.TransportOptions);
 }
